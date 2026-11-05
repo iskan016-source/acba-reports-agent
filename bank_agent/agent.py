@@ -147,6 +147,7 @@ Then output the FINAL answer for the user:
   "Validator note: <what you corrected>".
  - Does the draft directly answer the user's question? If not, rewrite it.
  - Keep the final answer under 3 sentences. Do not add notes about citation formatting.
+ - Unit conversions of a fact (e.g. 35,856,026 thousand = 35.86 billion) count as supported.
 Do not mention the researcher, the analyst, or these instructions.
 """,
     generate_content_config=types.GenerateContentConfig(
