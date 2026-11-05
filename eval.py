@@ -1,9 +1,18 @@
-import json, os, time
+"""Run the evaluation set (eval_set.json) against a deployed /ask endpoint.
+
+Usage:  EVAL_KEY=... [EVAL_URL=https://...] python eval.py
+"""
+
+import json
+import os
+import time
+
 import httpx
 
 URL = os.environ.get("EVAL_URL", "http://127.0.0.1:8000") + "/ask"
-KEY = os.environ["EVAL_KEY"]          # pass the key from outside, never hard-code it
+KEY = os.environ["EVAL_KEY"]  # passed in from the environment, never hard-coded
 
+# Phrases that count as a correct refusal for questions the reports can't answer.
 NOT_FOUND_WORDS = ["not contain", "not found", "don't have", "do not have",
                    "not available", "no information", "does not include", "not in the reports"]
 
@@ -11,42 +20,41 @@ NOT_FOUND_WORDS = ["not contain", "not found", "don't have", "do not have",
 def check(case: dict, answer: str) -> bool:
     """Return True if the answer passes this test case."""
     text = answer.lower()
-    # TODO 1: if the case has "expect_not_found" -> pass if ANY phrase from NOT_FOUND_WORDS is in text
-    #   hint: case.get("expect_not_found")   and   any(phrase in text for phrase in ...)
     if case.get("expect_not_found"):
         return any(phrase in text for phrase in NOT_FOUND_WORDS)
-
-    # TODO 2: otherwise -> pass if ANY string from case["expect_any"] appears in the answer
-    #   (same any(...) pattern)
-    else:
-        return any(phrase in text for phrase in case["expect_any"])
+    return any(phrase in text for phrase in case["expect_any"])
 
 
-cases = json.load(open("eval_set.json"))
-passed = 0
-latencies = []
+def main() -> None:
+    """Ask every question, print PASS/FAIL per case, then the score and average latency."""
+    with open("eval_set.json") as f:
+        cases = json.load(f)
+    passed = 0
+    latencies = []
 
-for case in cases:
-    start = time.perf_counter()
-    r = httpx.post(URL, json={"question": case["question"]},
-                   headers={"x-api-key": KEY}, timeout=180)
-    seconds = time.perf_counter() - start
-    answer = r.json().get("answer", "")
+    for case in cases:
+        start = time.perf_counter()
+        r = httpx.post(URL, json={"question": case["question"]},
+                       headers={"x-api-key": KEY}, timeout=180)
+        seconds = time.perf_counter() - start
+        answer = r.json().get("answer", "")
 
-    # TODO 3: call check(...), add 1 to passed if True, append seconds to latencies
-    ok = check(case, answer)
-    if ok:
-        passed += 1
-    latencies.append(seconds)
+        ok = check(case, answer)
+        if ok:
+            passed += 1
+        latencies.append(seconds)
 
-    print(f"{'PASS' if ok else 'FAIL'}  {seconds:5.1f}s  {case['question']}")
-    if not ok:
-        print("      got:", answer[:200])
+        print(f"{'PASS' if ok else 'FAIL'}  {seconds:5.1f}s  {case['question']}")
+        if not ok:
+            print("      got:", answer[:200])
 
-# TODO 4: print the final score, e.g.  "Score: 9/11 (82%)",  and the average latency
-percent = passed / len(cases) * 100                 # e.g. 9 / 11 * 100 = 81.8
-avg_latency = sum(latencies) / len(latencies)       # total seconds / number of questions
+    percent = passed / len(cases) * 100
+    avg_latency = sum(latencies) / len(latencies)
 
-print()                                             # empty line before the summary
-print(f"Score: {passed}/{len(cases)} ({percent:.0f}%)")
-print(f"Average latency: {avg_latency:.1f}s")
+    print()
+    print(f"Score: {passed}/{len(cases)} ({percent:.0f}%)")
+    print(f"Average latency: {avg_latency:.1f}s")
+
+
+if __name__ == "__main__":
+    main()

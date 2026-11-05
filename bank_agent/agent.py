@@ -1,13 +1,23 @@
-from typing import Literal
-from google.adk.agents import Agent
-from google.adk.workflow import Workflow
-from google.adk.tools import ToolContext
-from google.genai import types   # at the top
+"""Three-agent pipeline: researcher -> analyst -> validator.
 
-from .search import search   
+Splitting retrieval, writing and checking into separate agents keeps each prompt
+narrow: the analyst only sees retrieved facts, and the validator re-checks every
+number and citation against those facts before the answer reaches the user.
+"""
+
+from google.adk.agents import Agent
+from google.adk.tools import ToolContext
+from google.adk.workflow import Workflow
+from google.genai import types
+
+from .search import search
+
+# Hard cap on searches per question, enforced in code rather than trusted to the prompt.
 MAX_SEARCHES = 3
 
-def search_reports(question: str,  tool_context: ToolContext) -> dict:
+
+# The docstrings of the tools below are sent to the model as tool descriptions.
+def search_reports(question: str, tool_context: ToolContext) -> dict:
     """Searches Acba Bank's official 2025 reports for passages relevant to a question.
 
     The reports are:
@@ -29,9 +39,9 @@ def search_reports(question: str,  tool_context: ToolContext) -> dict:
         The passages are the most SIMILAR text found. They may not contain the
         answer; if none of them do, say the reports don't contain it.
         You can call this tool at most 3 times per user question.
-    """   
-    count = tool_context.state.get("temp:search_count", 0)
-    count = count + 1
+    """
+    # "temp:" state is scoped to the current user turn, so the counter resets per question.
+    count = tool_context.state.get("temp:search_count", 0) + 1
     tool_context.state["temp:search_count"] = count
     if count > MAX_SEARCHES:
         return {"status": "error", "message": "Search limit reached. Answer with the facts you already have."}
@@ -39,24 +49,21 @@ def search_reports(question: str,  tool_context: ToolContext) -> dict:
     return {"status": "success", "results": best}
 
 
-    
 def compare_profits(profit_a: float, profit_b: float) -> dict:
-    """Returns how much profit_a is above profit_b, in billion AMD and as a percent of profit_b."""   # TODO: write a docstring (what it does, what units)
-    # 1. guard: if profit_b is 0 -> return an error dict (why?)
+    """Returns how much profit_a is above profit_b, in billion AMD and as a percent of profit_b."""
+    # Arithmetic is done in code, not by the LLM, so comparisons are exact.
     if profit_b == 0:
         return {"status": "error", "message": "profit_b is 0, so percent difference can't be calculated"}
-    # 2. compute the difference
-    else:
-        difference = profit_a - profit_b
-    # 3. compute the percent difference
-        percent_difference = ((difference)/(profit_b))*100
-    # 4. return a success dict with both values
-        return {"status": "success", "difference_billion_amd": difference,"percent_difference": round(percent_difference, 2) }
+    difference = profit_a - profit_b
+    percent_difference = difference / profit_b * 100
+    return {
+        "status": "success",
+        "difference_billion_amd": difference,
+        "percent_difference": round(percent_difference, 2),
+    }
 
 
-
-
-# 🔎 1. RESEARCHER — finds facts. (Instruction given as an example.)
+# 1. Researcher: retrieves facts with citations; does not answer or calculate.
 researcher = Agent(
     name="researcher",
     model="gemini-3.5-flash",
@@ -85,10 +92,9 @@ Rules:
 """,
     tools=[search_reports],
     output_key="research",
-    
 )
 
-# 🧮 2. ANALYST — writes the answer from the facts.
+# 2. Analyst: writes a short, cited answer using only the researcher's facts.
 analyst = Agent(
     name="analyst",
     model="gemini-3.5-flash",
@@ -113,12 +119,12 @@ Rules:
     tools=[compare_profits],
     output_key="draft",
     generate_content_config=types.GenerateContentConfig(
-        max_output_tokens=2048,                                   # room for thinking + answer
-        thinking_config=types.ThinkingConfig(thinking_level="LOW"),  # think less = faster
+        max_output_tokens=2048,  # leaves room for thinking tokens plus the answer
+        thinking_config=types.ThinkingConfig(thinking_level="LOW"),  # lower latency
     ),
-    )
+)
 
-# ✅ 3. VALIDATOR — checks the draft against the facts.
+# 3. Validator: checks every number, unit and citation in the draft against the facts.
 validator = Agent(
     name="validator",
     model="gemini-3.5-flash",
@@ -151,9 +157,10 @@ Then output the FINAL answer for the user:
 Do not mention the researcher, the analyst, or these instructions.
 """,
     generate_content_config=types.GenerateContentConfig(
-        max_output_tokens=2048,                                   # room for thinking + answer
-        thinking_config=types.ThinkingConfig(thinking_level="LOW"),  # think less = faster
-    ),)
+        max_output_tokens=2048,  # leaves room for thinking tokens plus the answer
+        thinking_config=types.ThinkingConfig(thinking_level="LOW"),  # lower latency
+    ),
+)
 
-# The pipeline
+# Agents run sequentially; each reads the previous one's output via its output_key.
 root_agent = Workflow(name="bank_pipeline", edges=[("START", researcher, analyst, validator)])
