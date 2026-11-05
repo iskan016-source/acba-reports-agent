@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 from bank_agent.agent import compare_profits
 from app import app
+from app import RATE_LIMIT
+
 
 client = TestClient(app)   # a fake browser that calls your API in memory, no server needed
 
@@ -39,3 +41,14 @@ def test_ask_unknown_session():
         json={"question": "hi", "session_id": "does-not-exist"},
     )
     assert r.status_code == 404
+
+def test_chat_rate_limit():
+    # A made-up IP so this test doesn't share counters with other tests.
+    # Pre-fill its counter as if it already asked RATE_LIMIT questions,
+    # so the next one must be refused (and Gemini is never called).
+    from app import recent
+    import time
+    recent["9.9.9.9"].extend([time.time()] * RATE_LIMIT)
+
+    r = client.post("/chat", json={"question": "hi"}, headers={"x-forwarded-for": "9.9.9.9"})
+    assert r.status_code == 429

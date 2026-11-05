@@ -1,33 +1,32 @@
-# ── 1. Load .env FIRST (before importing the agent, which reads settings) ──
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv()                                   # load .env FIRST
 
 import os
 import time
 import logging
-from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel
+from collections import defaultdict, deque      # NEW (for the rate limiter)
+from pathlib import Path                        # NEW (to find static/index.html)
+
+from fastapi import FastAPI, Header, HTTPException, Request          # CHANGED: + Request
+from fastapi.responses import FileResponse                           # NEW
+from pydantic import BaseModel, Field                                # CHANGED: + Field
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
-from bank_agent.agent import root_agent   # your 3-agent pipeline
+from bank_agent.agent import root_agent
 
-# ── 2. Logging: print one line per request with time + level ──
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bank_api")
 
 API_KEY = os.environ["BANK_API_KEY"]
 APP_NAME = "bank_api"
-
-# The Runner runs your agent. "InMemory" = sessions are kept in RAM (lost on restart).
 runner = InMemoryRunner(agent=root_agent, app_name=APP_NAME)
 app = FastAPI(title="Acba Reports Agent API")
 
 
-# ── 3. The SHAPE of requests and responses ──
 class AskRequest(BaseModel):
-    question: str
-    session_id: str | None = None   # None = start a new conversation
+    question: str = Field(min_length=1, max_length=500)   # CHANGED: 1-500 characters, else 422
+    session_id: str | None = None
 
 class AskResponse(BaseModel):
     answer: str
@@ -36,61 +35,86 @@ class AskResponse(BaseModel):
     latency_ms: int
 
 
-# ── 4. Health check: other systems ping this to see if we're alive ──
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
-# ── 5. The main endpoint ──
-@app.post("/ask", response_model=AskResponse)
-async def ask(req: AskRequest, x_api_key: str | None = Header(default=None)):
-    # FastAPI reads the "X-API-Key" header into the variable x_api_key.
+# NEW: the pipeline code from /ask moved into ONE function, used by /ask AND /chat
+async def run_agent(question: str, session_id: str | None) -> AskResponse:
+    start = time.perf_counter()
 
-    # TODO 1: if x_api_key is not equal to API_KEY:
-    #           raise HTTPException(status_code=401, detail="Invalid or missing API key")
-    if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail = "Invalid or missing API key")
-
-
-    start = time.perf_counter()     # stopwatch start
-
-    # Session: reuse the caller's session, or create a new one
     user_id = "api-user"
-    if req.session_id is None:
+    if session_id is None:
         session = await runner.session_service.create_session(app_name=APP_NAME, user_id=user_id)
         session_id = session.id
     else:
         session = await runner.session_service.get_session(
-            app_name=APP_NAME, user_id=user_id, session_id=req.session_id
+            app_name=APP_NAME, user_id=user_id, session_id=session_id
         )
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found. Omit session_id to start a new one.")
 
-        if session is  None:
-            raise HTTPException(status_code=404, detail ="Session not found. Omit session_id to start a new one.")
-        session_id = req.session_id
-
-    message = types.Content(role="user", parts=[types.Part(text=req.question)])
-
+    message = types.Content(role="user", parts=[types.Part(text=question)])
     answer = ""
     tool_calls = []
-    # Run the pipeline. It produces a stream of EVENTS, the same ones you saw in the Events tab.
     async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=message):
-        # TODO 2: record tool calls.
-        #   event.get_function_calls() returns a list (often empty).
-        #   For each call in it, append call.name to tool_calls.
         for call in event.get_function_calls():
             tool_calls.append(call.name)
-
-        # Keep the latest text: the validator's text comes last, so it ends up as the answer
         if event.content and event.content.parts and event.content.parts[0].text:
             answer = event.content.parts[0].text
 
-    # TODO 3: compute latency in milliseconds.
-    #   time.perf_counter() - start  gives SECONDS (a float). Convert to an int of ms.
     latency_ms = int((time.perf_counter() - start) * 1000)
-
-    # Monitoring: one log line per request
     log.info("ask session=%s tools=%s latency_ms=%d", session_id, tool_calls, latency_ms)
+    return AskResponse(answer=answer, session_id=session_id, tool_calls=tool_calls, latency_ms=latency_ms)
 
-    return AskResponse(answer=answer, session_id=session_id,
-                       tool_calls=tool_calls, latency_ms=latency_ms)
+
+# CHANGED: /ask is now just "check the key, then run the agent"
+@app.post("/ask", response_model=AskResponse)
+async def ask(req: AskRequest, x_api_key: str | None = Header(default=None)):
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    return await run_agent(req.question, req.session_id)
+
+
+# ── NEW: rate limiter for the public chat page ──
+RATE_LIMIT = 10              # questions allowed...
+WINDOW_SECONDS = 3600        # ...per hour, per visitor
+recent = defaultdict(deque)  # ip -> times of that visitor's recent questions
+
+
+def client_ip(request: Request) -> str:
+    """The visitor's IP. On Cloud Run the real IP is in the X-Forwarded-For header."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def check_rate_limit(ip: str) -> None:
+    now = time.time()
+    times = recent[ip]                    # this visitor's recent question times (a deque)
+
+    # 1. forget questions older than the window (they're always at the FRONT, since we add new ones at the back)
+    while times and now - times[0] > WINDOW_SECONDS:
+        times.popleft()
+
+    # 2. still too many in the last hour? refuse
+    if len(times) >= RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Too many questions. Please try again later.")
+
+    # 3. allowed: remember this question
+    times.append(now)
+
+
+# NEW: public chat endpoint (no key, rate-limited)
+@app.post("/chat", response_model=AskResponse)
+async def chat(req: AskRequest, request: Request):
+    check_rate_limit(client_ip(request))
+    return await run_agent(req.question, req.session_id)
+
+
+# NEW: serve the chat page
+@app.get("/")
+def home():
+    return FileResponse(Path(__file__).parent / "static" / "index.html")

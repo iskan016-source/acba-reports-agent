@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Acba Reports Agent</title>
+<meta name="description" content="Multi-agent RAG demo answering questions from Acba Bank's 2025 Annual Report and audited IFRS financial statements, with page citations.">
+<meta name="theme-color" content="#0b0d0e">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d0e;
+    --panel: #141719;
+    --panel-2: #1a1e21;
+    --border: #262b2f;
+    --border-strong: #343a3f;
+    --text: #e8eaeb;
+    --text-muted: #9aa3a8;
+    --text-faint: #7d868b;
+    --accent: #3fb8a0;
+    --accent-strong: #5fd0b8;
+    --accent-ink: #062520;
+    --accent-soft: rgba(63, 184, 160, 0.12);
+    --danger: #f08a7e;
+    --danger-soft: rgba(240, 138, 126, 0.10);
+    --radius: 14px;
+    --maxw: 760px;
+    --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+  }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  .skip-link {
+    position: absolute; left: 12px; top: -48px; z-index: 20;
+    background: var(--accent); color: var(--accent-ink);
+    padding: 8px 14px; border-radius: 8px; font-weight: 600; text-decoration: none;
+  }
+  .skip-link:focus { top: 12px; }
+
+  :focus-visible {
+    outline: 2px solid var(--accent-strong);
+    outline-offset: 2px;
+  }
+
+  .wrap {
+    width: 100%;
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+
+  /* ── Header ── */
+  header.site {
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #0f1213 0%, var(--bg) 100%);
+  }
+  header.site .wrap { padding-top: 28px; padding-bottom: 22px; }
+  .brand {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 8px;
+  }
+  .brand-mark {
+    width: 34px; height: 34px; border-radius: 9px; flex: none;
+    background: var(--accent-soft);
+    border: 1px solid rgba(63, 184, 160, 0.35);
+    display: grid; place-items: center;
+  }
+  .brand-mark svg { width: 18px; height: 18px; color: var(--accent-strong); }
+  h1 {
+    margin: 0; font-size: 1.375rem; font-weight: 700; letter-spacing: -0.01em;
+  }
+  .tagline {
+    margin: 0 0 16px; color: var(--text-muted); font-size: 0.9375rem; max-width: 62ch;
+  }
+  .badges {
+    display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none;
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.8125rem; color: var(--text-muted);
+    padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border-strong); background: var(--panel);
+  }
+  .badge .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none;
+  }
+  .badge .arrow { color: var(--text-faint); }
+
+  /* ── Main chat area ── */
+  main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .chat {
+    flex: 1 1 auto;
+    padding-top: 24px;
+    padding-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .intro {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .intro h2 {
+    margin: 0 0 4px; font-size: 1rem; font-weight: 600;
+  }
+  .intro p { margin: 0 0 14px; color: var(--text-muted); font-size: 0.9375rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font: inherit; font-size: 0.875rem; line-height: 1.3;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 8px 14px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .chip:hover:not(:disabled) {
+    border-color: var(--accent); background: var(--accent-soft); color: #fff;
+  }
+  .chip:disabled { opacity: .45; cursor: not-allowed; }
+
+  .msg { display: flex; flex-direction: column; animation: rise .22s ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .msg.user { align-items: flex-end; }
+  .msg.user .bubble {
+    max-width: 85%;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 500;
+    padding: 10px 16px;
+    border-radius: 16px 16px 4px 16px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .msg.agent { align-items: flex-start; }
+  .card {
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px var(--radius) var(--radius) var(--radius);
+    padding: 16px 18px;
+  }
+  .card-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.75rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--accent-strong); margin-bottom: 8px;
+  }
+  .answer { overflow-wrap: anywhere; font-size: 0.96875rem; }
+  .answer p { margin: 0 0 10px; }
+  .answer p:last-child, .answer ul:last-child, .answer ol:last-child { margin-bottom: 0; }
+  .answer ul, .answer ol { margin: 0 0 10px; padding-left: 22px; }
+  .answer li { margin: 2px 0; }
+  .answer strong { color: #fff; font-weight: 600; }
+  .answer code {
+    font-family: var(--mono); font-size: .875em;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px;
+  }
+  .meta {
+    margin-top: 6px; padding-left: 4px;
+    font-size: 0.8125rem; color: var(--text-faint); font-family: var(--mono);
+  }
+
+  .card.error {
+    background: var(--danger-soft);
+    border-color: rgba(240, 138, 126, 0.35);
+  }
+  .card.error .card-label { color: var(--danger); }
+
+  .thinking {
+    display: flex; align-items: center; gap: 12px; color: var(--text-muted); font-size: 0.9375rem;
+  }
+  .pulse { display: inline-flex; gap: 4px; }
+  .pulse span {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+    animation: blink 1.2s infinite ease-in-out both;
+  }
+  .pulse span:nth-child(2) { animation-delay: .15s; }
+  .pulse span:nth-child(3) { animation-delay: .3s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; transform: scale(.8); } 40% { opacity: 1; transform: none; } }
+  .elapsed { font-family: var(--mono); color: var(--text); }
+  .stage { color: var(--text-faint); font-size: 0.8125rem; margin-top: 6px; }
+
+  /* ── Composer (fixed at bottom) ── */
+  .composer {
+    position: sticky; bottom: 0; z-index: 5;
+    background: linear-gradient(180deg, rgba(11,13,14,0) 0%, var(--bg) 22%);
+    padding-top: 18px;
+  }
+  .composer .wrap { padding-bottom: 10px; }
+  form.input-row {
+    display: flex; gap: 10px; align-items: flex-end;
+    background: var(--panel);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: 8px 8px 8px 14px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  form.input-row:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  textarea {
+    flex: 1; resize: none; border: 0; outline: none; background: transparent;
+    color: var(--text); font: inherit; font-size: 16px; line-height: 1.5;
+    padding: 6px 0; max-height: 160px; min-height: 24px;
+  }
+  textarea::placeholder { color: var(--text-faint); }
+  textarea:disabled { opacity: .6; }
+  textarea:focus-visible { outline: none; }
+  .send {
+    flex: none; font: inherit; font-weight: 600; font-size: 0.9375rem;
+    background: var(--accent); color: var(--accent-ink);
+    border: 0; border-radius: 10px; padding: 9px 16px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background .15s, opacity .15s;
+  }
+  .send:hover:not(:disabled) { background: var(--accent-strong); }
+  .send:disabled { opacity: .4; cursor: not-allowed; }
+  .send svg { width: 16px; height: 16px; }
+  .input-help {
+    display: flex; justify-content: space-between; gap: 12px;
+    font-size: 0.75rem; color: var(--text-faint); padding: 6px 4px 0;
+  }
+  .counter { font-family: var(--mono); }
+  .counter.near { color: #e5c07b; }
+  .counter.over { color: var(--danger); }
+
+  footer.site {
+    text-align: center; font-size: 0.8125rem; color: var(--text-faint);
+    padding: 4px 20px calc(12px + env(safe-area-inset-bottom));
+    background: var(--bg);
+  }
+
+  @media (max-width: 520px) {
+    body { font-size: 15px; }
+    .wrap { padding: 0 14px; }
+    header.site .wrap { padding-top: 20px; padding-bottom: 16px; }
+    h1 { font-size: 1.2rem; }
+    .tagline { font-size: 0.875rem; margin-bottom: 12px; }
+    .badge { font-size: 0.75rem; padding: 3px 9px; }
+    .intro { padding: 16px; }
+    .card { padding: 14px 15px; }
+    .msg.user .bubble { max-width: 90%; }
+    .send-label { display: none; }
+    .send { padding: 10px 12px; }
+    .kbd-hint { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#question">Skip to question input</a>
+
+<header class="site">
+  <div class="wrap">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/>
+          <path d="M8 13h8M8 17h5M14 3v5h5"/>
+        </svg>
+      </div>
+      <h1>Acba Reports Agent</h1>
+    </div>
+    <p class="tagline">Ask questions about Acba Bank's 2025 Annual Report and audited IFRS financial statements. Every answer is grounded in the documents, with page citations.</p>
+    <ul class="badges" aria-label="How it works">
+      <li class="badge"><span class="dot" aria-hidden="true"></span>Researcher <span class="arrow" aria-hidden="true">&rarr;</span><span class="sr-only">then</span> Analyst <span class="arrow" aria-hidden="true">&rarr;</span><span class="sr-only">then</span> Validator</li>
+      <li class="badge"><span class="dot" aria-hidden="true"></span>Gemini + Google ADK</li>
+      <li class="badge"><span class="dot" aria-hidden="true"></span>Cited answers</li>
+    </ul>
+  </div>
+</header>
+
+<main>
+  <div class="wrap chat" id="chat" role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation">
+    <section class="intro" aria-labelledby="intro-title">
+      <h2 id="intro-title">Try a question</h2>
+      <p>Pick an example or type your own. Answers usually take 10 to 30 seconds while the agents research, analyse and validate.</p>
+      <div class="chips" id="chips">
+        <button type="button" class="chip">What was Acba's net profit in 2025?</button>
+        <button type="button" class="chip">And in 2024?</button>
+        <button type="button" class="chip">What was the capital adequacy ratio in 2025?</button>
+        <button type="button" class="chip">What are Acba's plans for AI?</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="composer">
+    <div class="wrap">
+      <form class="input-row" id="form" novalidate>
+        <label for="question" class="sr-only">Your question about Acba Bank's 2025 reports</label>
+        <textarea id="question" name="question" rows="1" maxlength="500"
+          placeholder="Ask about Acba's 2025 financials..."
+          aria-describedby="counter hint" autocomplete="off"></textarea>
+        <button type="submit" class="send" id="send" disabled>
+          <span class="send-label">Send</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          <span class="sr-only">question</span>
+        </button>
+      </form>
+      <div class="input-help">
+        <span id="hint"><span class="kbd-hint">Enter to send, Shift+Enter for a new line</span></span>
+        <span id="counter" class="counter" aria-live="off">0 / 500</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="site">Independent demo project, not affiliated with Acba Bank.</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var MAX_LEN = 500;
+  var STAGES = [
+    [0,  "Researcher is searching the reports"],
+    [8,  "Analyst is working through the figures"],
+    [16, "Validator is checking the answer against sources"],
+    [28, "Still working, almost there"]
+  ];
+
+  var chat = document.getElementById("chat");
+  var form = document.getElementById("form");
+  var input = document.getElementById("question");
+  var sendBtn = document.getElementById("send");
+  var counter = document.getElementById("counter");
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
+
+  var sessionId = null;
+  var busy = false;
+
+  // ── Helpers ──────────────────────────────────────────────
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function scrollToBottom() {
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.requestAnimationFrame(function () {
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: reduce ? "auto" : "smooth" });
+    });
+  }
+
+  // Inline formatting: **bold** and `code`. Built from DOM nodes with textContent only.
+  function appendInline(parent, text) {
+    var re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+    var last = 0, m;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
+      var tok = m[0];
+      if (tok.charAt(0) === "`") parent.appendChild(el("code", null, tok.slice(1, -1)));
+      else parent.appendChild(el("strong", null, tok.slice(2, -2)));
+      last = m.index + tok.length;
+    }
+    if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
+  }
+
+  // Minimal, XSS-safe rendering of the agent's plain-text / light-markdown answer:
+  // paragraphs, bullet and numbered lists, bold and inline code. No innerHTML anywhere.
+  function renderAnswer(container, text) {
+    var lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+    var para = [], list = null, listType = null;
+
+    function flushPara() {
+      if (!para.length) return;
+      var p = el("p");
+      para.forEach(function (line, i) {
+        if (i) p.appendChild(document.createElement("br"));
+        appendInline(p, line);
+      });
+      container.appendChild(p);
+      para = [];
+    }
+    function flushList() { list = null; listType = null; }
+
+    lines.forEach(function (raw) {
+      var line = raw.replace(/\s+$/, "");
+      var bullet = /^\s*[-*•]\s+(.*)$/.exec(line);
+      var numbered = /^\s*(\d+)[.)]\s+(.*)$/.exec(line);
+      var heading = /^\s*#{1,6}\s+(.*)$/.exec(line);
+
+      if (!line.trim()) { flushPara(); flushList(); return; }
+      if (heading) {
+        flushPara(); flushList();
+        var hp = el("p"); var s = el("strong"); appendInline(s, heading[1].replace(/\*\*/g, ""));
+        hp.appendChild(s); container.appendChild(hp);
+        return;
+      }
+      if (bullet || numbered) {
+        flushPara();
+        var type = bullet ? "ul" : "ol";
+        if (!list || listType !== type) {
+          list = el(type); listType = type; container.appendChild(list);
+        }
+        var li = el("li");
+        appendInline(li, bullet ? bullet[1] : numbered[2]);
+        list.appendChild(li);
+        return;
+      }
+      flushList();
+      para.push(line);
+    });
+    flushPara();
+    if (!container.childNodes.length) container.appendChild(el("p", null, "(No answer returned.)"));
+  }
+
+  function setBusy(state) {
+    busy = state;
+    input.disabled = state;
+    chips.forEach(function (c) { c.disabled = state; });
+    form.setAttribute("aria-busy", state ? "true" : "false");
+    updateComposer();
+  }
+
+  function updateComposer() {
+    var len = input.value.length;
+    counter.textContent = len + " / " + MAX_LEN;
+    counter.classList.toggle("near", len >= MAX_LEN - 50 && len <= MAX_LEN);
+    counter.classList.toggle("over", len > MAX_LEN);
+    sendBtn.disabled = busy || !input.value.trim() || len > MAX_LEN;
+    // auto-grow
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 160) + "px";
+  }
+
+  // ── Message builders ────────────────────────────────────
+  function addUserMessage(text) {
+    var wrap = el("div", "msg user");
+    wrap.appendChild(el("span", "sr-only", "You said: "));
+    wrap.appendChild(el("div", "bubble", text));
+    chat.appendChild(wrap);
+    scrollToBottom();
+  }
+
+  function addThinking() {
+    var wrap = el("div", "msg agent");
+    var card = el("div", "card");
+    card.setAttribute("role", "status");
+    var label = el("div", "card-label", "Agent");
+    var row = el("div", "thinking");
+    var pulse = el("span", "pulse");
+    pulse.setAttribute("aria-hidden", "true");
+    pulse.appendChild(el("span")); pulse.appendChild(el("span")); pulse.appendChild(el("span"));
+    var txt = el("span", null, "Thinking ");
+    var secs = el("span", "elapsed", "0s");
+    txt.appendChild(secs);
+    row.appendChild(pulse); row.appendChild(txt);
+    var stage = el("div", "stage", STAGES[0][1]);
+    card.appendChild(label); card.appendChild(row); card.appendChild(stage);
+    wrap.appendChild(card);
+    chat.appendChild(wrap);
+    scrollToBottom();
+
+    var start = Date.now();
+    var timer = setInterval(function () {
+      var s = Math.floor((Date.now() - start) / 1000);
+      secs.textContent = s + "s";
+      for (var i = STAGES.length - 1; i >= 0; i--) {
+        if (s >= STAGES[i][0]) { stage.textContent = STAGES[i][1]; break; }
+      }
+    }, 250);
+
+    return {
+      remove: function () { clearInterval(timer); wrap.remove(); }
+    };
+  }
+
+  function addAnswer(data) {
+    var wrap = el("div", "msg agent");
+    var card = el("article", "card");
+    card.setAttribute("aria-label", "Agent answer");
+    card.appendChild(el("div", "card-label", "Agent"));
+    var body = el("div", "answer");
+    renderAnswer(body, data.answer);
+    card.appendChild(body);
+    wrap.appendChild(card);
+
+    var secs = (Number(data.latency_ms) || 0) / 1000;
+    var n = Array.isArray(data.tool_calls) ? data.tool_calls.length : 0;
+    wrap.appendChild(el("div", "meta",
+      secs.toFixed(1) + "s · " + n + (n === 1 ? " tool call" : " tool calls")));
+
+    chat.appendChild(wrap);
+    scrollToBottom();
+  }
+
+  function addError(message) {
+    var wrap = el("div", "msg agent");
+    var card = el("div", "card error");
+    card.setAttribute("role", "alert");
+    card.appendChild(el("div", "card-label", "Notice"));
+    card.appendChild(el("div", "answer", message));
+    wrap.appendChild(card);
+    chat.appendChild(wrap);
+    scrollToBottom();
+  }
+
+  // ── Networking ──────────────────────────────────────────
+  async function ask(question) {
+    question = question.trim();
+    if (busy) return;
+    if (!question) { addError("Please type a question first."); return; }
+    if (question.length > MAX_LEN) {
+      addError("Questions can be at most " + MAX_LEN + " characters. Please shorten it and try again.");
+      return;
+    }
+
+    addUserMessage(question);
+    input.value = "";
+    setBusy(true);
+    var thinking = addThinking();
+
+    try {
+      var res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ question: question, session_id: sessionId })
+      });
+
+      if (res.ok) {
+        var data = await res.json();
+        if (data && typeof data.session_id === "string") sessionId = data.session_id;
+        thinking.remove();
+        addAnswer(data || {});
+      } else {
+        thinking.remove();
+        if (res.status === 429) {
+          addError("You've reached the question limit, try again later.");
+        } else if (res.status === 404) {
+          sessionId = null;
+          addError("Your session expired, so the conversation was reset. Please send your question again.");
+          input.value = question;
+        } else if (res.status === 422) {
+          addError("Questions must be between 1 and " + MAX_LEN + " characters. Please edit it and try again.");
+          input.value = question;
+        } else {
+          addError("Something went wrong, please try again.");
+        }
+      }
+    } catch (err) {
+      thinking.remove();
+      addError("Something went wrong, please try again.");
+    } finally {
+      setBusy(false);
+      input.focus();
+    }
+  }
+
+  // ── Events ──────────────────────────────────────────────
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    ask(input.value);
+  });
+
+  input.addEventListener("input", updateComposer);
+
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      if (!sendBtn.disabled) ask(input.value);
+    }
+  });
+
+  chips.forEach(function (chip) {
+    chip.addEventListener("click", function () { ask(chip.textContent); });
+  });
+
+  updateComposer();
+  input.focus({ preventScroll: true });
+})();
+</script>
+</body>
+</html>
