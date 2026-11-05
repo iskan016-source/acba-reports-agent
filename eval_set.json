@@ -1,0 +1,79 @@
+[
+    {
+        "question": "What was Acba's net profit in 2025?",
+        "expect_any": [
+            "35,856,026",
+            "35.86",
+            "35.9"
+        ]
+    },
+    {
+        "question": "What was Acba's net profit in 2024?",
+        "expect_any": [
+            "28,765,089",
+            "28.77",
+            "28.8"
+        ]
+    },
+    {
+        "question": "What was Acba's net interest income in 2025?",
+        "expect_any": [
+            "66,355,590",
+            "66.36",
+            "66.4"
+        ]
+    },
+    {
+        "question": "How much fee and commission income did Acba earn in 2025?",
+        "expect_any": [
+            "18,711,467",
+            "18.71",
+            "18.7"
+        ]
+    },
+    {
+        "question": "What was Acba's income tax expense in 2025?",
+        "expect_any": [
+            "9,140,704",
+            "9.14",
+            "9.1"
+        ]
+    },
+    {
+        "question": "What were Acba's personnel expenses in 2025?",
+        "expect_any": [
+            "23,142,847",
+            "23.14",
+            "23.1"
+        ]
+    },
+    {
+        "question": "What was Acba's basic earnings per share in 2025?",
+        "expect_any": [
+            "5,990.98",
+            "5,991"
+        ]
+    },
+    {
+        "question": "What were Acba's total assets at the end of 2025?",
+        "expect_any": [
+            "1,063",
+            "1,062.5",
+            "1,062,519,621"
+        ]
+    },
+    {
+        "question": "What was Acba's capital adequacy ratio in 2025?",
+        "expect_any": [
+            "23.2"
+        ]
+    },
+    {
+        "question": "What was Acba's net profit in 2019?",
+        "expect_not_found": true
+    },
+    {
+        "question": "What was Ameriabank's net profit in 2025?",
+        "expect_not_found": true
+    }
+]
