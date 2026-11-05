@@ -1,0 +1,14 @@
+name: tests                      # the name shown on GitHub
+
+on: [push, pull_request]         # WHEN: on every push and every pull request
+
+jobs:
+  test:
+    runs-on: ubuntu-latest       # WHERE: a fresh Linux machine from GitHub (free for you)
+    steps:                       # WHAT: the steps, in order
+      - uses: actions/checkout@v4          # 1. download your code
+      - uses: actions/setup-python@v5      # 2. install Python 3.13
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt -r requirements-dev.txt   # 3. install packages
+      - run: pytest -q                     # 4. run your tests
